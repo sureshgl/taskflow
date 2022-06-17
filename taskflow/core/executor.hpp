@@ -1342,17 +1342,17 @@ inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
     }
     break;
 
-    // cudaflow task
-    case Node::CUDAFLOW: {
-      _invoke_cudaflow_task(worker, node, pf);
-    }
-    break; 
+    // // cudaflow task
+    // case Node::CUDAFLOW: {
+    //   _invoke_cudaflow_task(worker, node, pf);
+    // }
+    // break; 
     
-    // syclflow task
-    case Node::SYCLFLOW: {
-      _invoke_syclflow_task(worker, node, pf);
-    }
-    break; 
+    // // syclflow task
+    // case Node::SYCLFLOW: {
+    //   _invoke_syclflow_task(worker, node, pf);
+    // }
+    // break; 
 
     // runtime task
     case Node::RUNTIME: {
@@ -1645,19 +1645,19 @@ inline void Executor::_invoke_multi_condition_task(
   _observer_epilogue(worker, node, pf);
 }
 
-// Procedure: _invoke_cudaflow_task
-inline void Executor::_invoke_cudaflow_task(Worker& worker, Node* node, Pipeflow& pf) {
-  _observer_prologue(worker, node, pf);  
-  std::get_if<Node::cudaFlow>(&node->_handle)->work(*this, node);
-  _observer_epilogue(worker, node, pf);
-}
+// // Procedure: _invoke_cudaflow_task
+// inline void Executor::_invoke_cudaflow_task(Worker& worker, Node* node, Pipeflow& pf) {
+//   _observer_prologue(worker, node, pf);  
+//   std::get_if<Node::cudaFlow>(&node->_handle)->work(*this, node);
+//   _observer_epilogue(worker, node, pf);
+// }
 
-// Procedure: _invoke_syclflow_task
-inline void Executor::_invoke_syclflow_task(Worker& worker, Node* node, Pipeflow& pf) {
-  _observer_prologue(worker, node, pf);  
-  std::get_if<Node::syclFlow>(&node->_handle)->work(*this, node);
-  _observer_epilogue(worker, node, pf);
-}
+// // Procedure: _invoke_syclflow_task
+// inline void Executor::_invoke_syclflow_task(Worker& worker, Node* node, Pipeflow& pf) {
+//   _observer_prologue(worker, node, pf);  
+//   std::get_if<Node::syclFlow>(&node->_handle)->work(*this, node);
+//   _observer_epilogue(worker, node, pf);
+// }
 
 // Procedure: _invoke_module_task
 inline void Executor::_invoke_module_task(Worker& w, Node* node, Pipeflow& pf) {
@@ -1956,6 +1956,7 @@ inline void Executor::_set_up_topology(Worker* worker, Topology* tpg, Pipeflow& 
     _schedule(*worker, tpg->_sources, pf);
   }
   else {
+
     _schedule(tpg->_sources, pf);
   }
 }

@@ -542,8 +542,8 @@ inline TaskType Task::type() const {
     case Node::MODULE:          return TaskType::MODULE;
     case Node::ASYNC:           return TaskType::ASYNC;
     case Node::SILENT_ASYNC:    return TaskType::ASYNC;
-    case Node::CUDAFLOW:        return TaskType::CUDAFLOW;
-    case Node::SYCLFLOW:        return TaskType::SYCLFLOW;
+    // case Node::CUDAFLOW:        return TaskType::CUDAFLOW;
+    // case Node::SYCLFLOW:        return TaskType::SYCLFLOW;
     case Node::RUNTIME:         return TaskType::RUNTIME;
     default:                    return TaskType::UNDEFINED;
   }
@@ -594,9 +594,9 @@ Task& Task::work(C&& c) {
   else if constexpr(is_multi_condition_task_v<C>) {
     _node->_handle.emplace<Node::MultiCondition>(std::forward<C>(c));
   }
-  else if constexpr(is_cudaflow_task_v<C>) {
-    _node->_handle.emplace<Node::cudaFlow>(std::forward<C>(c));
-  }
+  // else if constexpr(is_cudaflow_task_v<C>) {
+  //   _node->_handle.emplace<Node::cudaFlow>(std::forward<C>(c));
+  // }
   else if constexpr(is_runtime_task_v<C>) {
     _node->_handle.emplace<Node::Runtime>(std::forward<C>(c));
   }
@@ -749,8 +749,8 @@ inline TaskType TaskView::type() const {
     case Node::MODULE:          return TaskType::MODULE;
     case Node::ASYNC:           return TaskType::ASYNC;
     case Node::SILENT_ASYNC:    return TaskType::ASYNC;
-    case Node::CUDAFLOW:        return TaskType::CUDAFLOW;
-    case Node::SYCLFLOW:        return TaskType::SYCLFLOW;
+    // case Node::CUDAFLOW:        return TaskType::CUDAFLOW;
+    // case Node::SYCLFLOW:        return TaskType::SYCLFLOW;
     case Node::RUNTIME:         return TaskType::RUNTIME;
     default:                    return TaskType::UNDEFINED;
   }
