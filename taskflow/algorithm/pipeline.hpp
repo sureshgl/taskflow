@@ -30,7 +30,7 @@ At the first stage, users can explicitly call the stop method
 to stop the pipeline scheduler.
 
 @code{.cpp}
-tf::Pipe{tf::PipeType::SERIAL, [](tf::Pipeflow& pf){
+tf::Pipe{tf::PipeType::SERIAL, [](tf::Runtime& rt, tf::Pipeflow& pf){
   std::cout << "token id=" << pf.token() 
             << " at line=" << pf.line()
             << " at pipe=" << pf.pipe()
@@ -132,7 +132,7 @@ and is coupled with a callable to invoke by the pipeline scheduler.
 The callable must take a tf::Pipeflow object in reference:
 
 @code{.cpp}
-Pipe{PipeType::SERIAL, [](tf::Pipeflow&){}}
+Pipe{PipeType::SERIAL, [](tf::Runtime& rt, tf::Pipeflow& pf){}}
 @endcode
 
 The pipeflow object is used to query the statistics of a scheduling token
@@ -170,7 +170,7 @@ class Pipe {
   given callable. The callable must take a tf::Pipeflow object in reference:
 
   @code{.cpp}
-  Pipe{PipeType::SERIAL, [](tf::Pipeflow&){}}
+  Pipe{PipeType::SERIAL, [](tf::Runtime& rt, tf::Pipeflow& pf){}}
   @endcode
 
   When creating a pipeline, the direction of the first pipe must be serial 
@@ -202,7 +202,7 @@ class Pipe {
   @brief assigns a new callable to the pipe
 
   @tparam U callable type
-  @param callable a callable object constructible from std::function<void(tf::Pipeflow&)>
+  @param callable a callable object constructible from std::function<void(tf::Runtime& rt, tf::Pipeflow& pf)>
 
   Assigns a new callable to the pipe with universal forwarding.
   */
@@ -252,7 +252,7 @@ std::array<std::array<int, num_pipes>, num_lines> buffer;
 // create a pipeline graph of four concurrent lines and three serial pipes
 tf::Pipeline pipeline(num_lines,
   // first pipe must define a serial direction
-  tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Pipeflow& pf) {
+  tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Runtime& rt, tf::Pipeflow& pf) {
     // generate only 5 scheduling tokens
     if(pf.token() == 5) {
       pf.stop();
@@ -262,7 +262,7 @@ tf::Pipeline pipeline(num_lines,
       buffer[pf.line()][pf.pipe()] = pf.token();
     }
   }},
-  tf::Pipe{tf::PipeType::SERIAL, [&buffer] (tf::Pipeflow& pf) {
+  tf::Pipe{tf::PipeType::SERIAL, [&buffer] (tf::Runtime& rt, tf::Pipeflow& pf) {
     // propagate the previous result to this pipe by adding one
     buffer[pf.line()][pf.pipe()] = buffer[pf.line()][pf.pipe()-1] + 1;
   }},
@@ -423,7 +423,7 @@ class Pipeline {
   template <size_t... I>
   auto _gen_meta(std::tuple<Ps...>&&, std::index_sequence<I...>);
     
-  void _on_pipe(Pipeflow&, Runtime&);
+  void _on_pipe(Runtime&, Pipeflow&);
   void _build();
 };
 
@@ -531,9 +531,9 @@ void Pipeline<Ps...>::reset() {
   
 // Procedure: _on_pipe
 template <typename... Ps>
-void Pipeline<Ps...>::_on_pipe(Pipeflow& pf, Runtime&) {
+void Pipeline<Ps...>::_on_pipe(Runtime& rt, Pipeflow& pf) {
   visit_tuple([&](auto&& pipe){ 
-    pipe._callable(pf);
+    pipe._callable(rt, pf);
   }, _pipes, pf._pipe);
 }
 
@@ -566,7 +566,7 @@ void Pipeline<Ps...>::_build() {
 
       if (pf->_pipe == 0) {
         pf->_token = _num_tokens;
-        if (pf->_stop = false, _on_pipe(*pf, rt); pf->_stop == true) {
+        if (pf->_stop = false, _on_pipe(rt,*pf); pf->_stop == true) {
           // here, the pipeline is not stopped yet because other
           // lines of tasks may still be running their last stages
           return;
@@ -574,7 +574,7 @@ void Pipeline<Ps...>::_build() {
         ++_num_tokens;
       }
       else {
-        _on_pipe(*pf, rt);
+        _on_pipe(rt, *pf);
       }
 
       size_t c_f = pf->_pipe;
@@ -881,11 +881,11 @@ class ScalablePipeline {
   size_t _num_tokens;
 
   std::vector<P> _pipes;
-  std::vector<Task> _tasks;
+  std::vector<std::vector<Task>> _tasks; //a task for each line and pipe
   std::vector<Pipeflow> _pipeflows;
   std::unique_ptr<Line[]> _lines; 
   
-  void _on_pipe(Pipeflow&, Runtime&);
+  void _on_pipe(Runtime&, Pipeflow&);
   void _build();
 
   Line& _line(size_t, size_t);
@@ -895,10 +895,10 @@ class ScalablePipeline {
 template <typename P>
 ScalablePipeline<P>::ScalablePipeline(size_t num_lines, P first, P last) :
   _pipes     {static_cast<size_t>(std::distance(first, last))},
-  _tasks     (num_lines + 1),
+  _tasks     ((num_lines + 1), std::vector<Task>(_pipes.size()+1)),
   _pipeflows (num_lines),
   _lines     {std::make_unique<Line[]>(num_lines * _pipes.size())} {
-  
+
   if(_pipes.size() == 0) {
     TF_THROW("pipeline cannot be empty");
   }
@@ -997,11 +997,12 @@ void ScalablePipeline<P>::reset() {
 
 // Procedure: _on_pipe
 template <typename P>
-void ScalablePipeline<P>::_on_pipe(Pipeflow& pf, Runtime&) {
-  _pipes[pf._pipe]->_callable(pf);
+void ScalablePipeline<P>::_on_pipe(Runtime& rt, Pipeflow& pf) {
+  _pipes[pf._pipe]->_callable(rt, pf);
 }
 
 // Procedure: _build
+
 template <typename P>
 void ScalablePipeline<P>::_build() {
   
@@ -1010,36 +1011,42 @@ void ScalablePipeline<P>::_build() {
   FlowBuilder fb(_graph); 
 
   // init task
-  _tasks[0] = fb.emplace([this](WorkerView wv, TaskView tv, Pipeflow& pf) {
+  _tasks[0][0] = fb.emplace([this](WorkerView wv, TaskView tv, Pipeflow& pf) {
     return static_cast<int>(_num_tokens % num_lines());
   }).name("cond");
 
   // line task
   for(size_t l = 0; l < num_lines(); l++) {
 
-    _tasks[l + 1] = fb.emplace([this, l] (tf::Runtime& rt, WorkerView wv, TaskView tv, Pipeflow& pf1) mutable {
+    _tasks[l + 1][0] = fb.emplace([this, l] (tf::Runtime& rt, WorkerView wv, TaskView tv, Pipeflow& pf1) mutable {
 
       auto pf = &_pipeflows[l];
 
       pipeline:
-
+      
       _line(pf->_line, pf->_pipe).join_counter.store(
         static_cast<size_t>(_pipes[pf->_pipe]->type()), std::memory_order_relaxed
       );
 
+      std::shared_ptr<tf::Runtime> sub_rt = rt.getRuntime(_tasks[pf->line() + 1][pf->pipe() +1].getNode()); //get the runtime of stage node.
       if (pf->_pipe == 0) {
         pf->_token = _num_tokens;
-        if (pf->_stop = false, _on_pipe(*pf, rt); pf->_stop == true) {
-          // here, the pipeline is not stopped yet because other
-          // lines of tasks may still be running their last stages
-          return;
+        {
+          pf->_stop = false;
+          _on_pipe(*sub_rt, *pf);
+          //_on_pipe(rt, *pf);
+          if (pf->_stop == true) {
+            // here, the pipeline is not stopped yet because other
+            // lines of tasks may still be running their last stages
+            return;
+          }
         }
         ++_num_tokens;
       }
       else {
-        _on_pipe(*pf, rt);
+       _on_pipe(*sub_rt, *pf);
+       //_on_pipe(rt, *pf);
       }
-
       size_t c_f = pf->_pipe;
       size_t n_f = (pf->_pipe + 1) % num_pipes();
       size_t n_l = (pf->_line + 1) % num_lines();
@@ -1080,12 +1087,16 @@ void ScalablePipeline<P>::_build() {
       // notice that the task index starts from 1
       switch(n) {
         case 2: {
-          rt.schedule(_tasks[n_l+1],_pipeflows[n_l] );
+          rt.schedule(_tasks[n_l+1][0],_pipeflows[n_l] );
           goto pipeline;
         }
         case 1: {
           if (retval[0] == 1) {
             pf = &_pipeflows[n_l];
+          }
+          else if (retval[0] == 0 && n_f == 0) {
+            // forward is enabled
+            //return;
           }
           // if (pf->_pipe == 0)
           // {
@@ -1102,24 +1113,28 @@ void ScalablePipeline<P>::_build() {
       }
     }).name("rt-"s + std::to_string(l));
 
-    _tasks[0].precede(_tasks[l+1]);
+    //Create the task for each stages of each line, first task being the line task
+    for(int i=0; i < num_pipes(); i++)
+    {
+      _tasks[l+1][i+1] = fb.emplace([](tf::Runtime& rt, WorkerView wv, TaskView tv, Pipeflow& pf) {}).name("rt-"s+std::to_string(l)+"_p-"s+std::to_string(i));
+      // if( i > 0){
+      //   _tasks[l+1][i].precede(_tasks[l+1][i+1]);
+      // }
+    }
+    _tasks[0][0].precede(_tasks[l+1][0]);
   }
 }
 // Function: data
 template <typename P>
 void* ScalablePipeline<P>::data(int line) const
 {
-  return _tasks[line + 1].data();
+  return _tasks[line + 1][0].data();
 }
 // Function:data
 template <typename P>
 void ScalablePipeline<P>::data(int line, void *data)
 {
-   _tasks[line + 1].data(data);
+   _tasks[line + 1][0].data(data);
 }
 
 }  // end of namespace tf -----------------------------------------------------
-
-
-
-

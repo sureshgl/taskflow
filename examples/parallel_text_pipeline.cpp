@@ -73,7 +73,7 @@ int main() {
   tf::Pipeline pl(num_lines,
 
     // first pipe processes the input data
-    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       if(pf.token() == input.size()) {
         pf.stop();
       }
@@ -84,7 +84,7 @@ int main() {
     }},
     
     // second pipe counts the frequency of each character
-    tf::Pipe{tf::PipeType::PARALLEL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::PARALLEL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       std::unordered_map<char, size_t> map;
       for(auto c : std::get<std::string>(buffer[pf.line()])) {
         map[c]++;
@@ -94,7 +94,7 @@ int main() {
     }},
     
     // third pipe reduces the most frequent character
-    tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Runtime& rt, tf::Pipeflow& pf) {
       auto& map = std::get<std::unordered_map<char, size_t>>(buffer[pf.line()]);
       auto sol = std::max_element(map.begin(), map.end(), [](auto& a, auto& b){
         return a.second < b.second;

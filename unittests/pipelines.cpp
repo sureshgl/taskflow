@@ -24,7 +24,7 @@ void pipeline_1P(size_t L, unsigned w, tf::PipeType type) {
     if (type == tf::PipeType::SERIAL) {
       tf::Taskflow taskflow;
       size_t j = 0;
-      tf::Pipeline pl (L, tf::Pipe{type, [L, N, &j, &source](auto& pf) mutable {
+      tf::Pipeline pl (L, tf::Pipe{type, [L, N, &j, &source](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if (j == N) {
           pf.stop();
           return;
@@ -59,7 +59,7 @@ void pipeline_1P(size_t L, unsigned w, tf::PipeType type) {
     //  std::vector<int> collection;
 
     //  tf::Pipeline pl(L, tf::Pipe{type, 
-    //  [N, &j, &mutex, &collection](auto& pf) mutable {
+    //  [N, &j, &mutex, &collection](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
 
     //    auto ticket = j.fetch_add(1);
 
@@ -253,7 +253,7 @@ void pipeline_2P_SS(size_t L, unsigned w) {
 
     tf::Pipeline pl(
       L,
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -265,7 +265,7 @@ void pipeline_2P_SS(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j2] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -385,7 +385,7 @@ void pipeline_2P_SP(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L,
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -398,7 +398,7 @@ void pipeline_2P_SP(size_t L, unsigned w) {
       }},
 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &collection, &mutex, &j2, &mybuffer, L](auto& pf) mutable {
+      [N, &collection, &mutex, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex);
@@ -527,7 +527,7 @@ void pipeline_2P_PS(size_t L, unsigned w) {
 
     tf::Pipeline pl(L, 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j1, &mutex, &collection1](auto& pf) mutable {
+      [N, &source, &j1, &mutex, &collection1](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
 
         auto ticket = j1.fetch_add(1);
 
@@ -543,7 +543,7 @@ void pipeline_2P_PS(size_t L, unsigned w) {
         }
       }},
       tf::Pipe{tf::PipeType::SERIAL, 
-      [N, &collection2, &source, &j2](auto& pf) mutable {
+      [N, &collection2, &source, &j2](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         collection2.push_back(*(pf.input()));
         j2++;
@@ -691,7 +691,7 @@ void pipeline_2P_PP(size_t L, unsigned w) {
 
     tf::Pipeline pl(L, 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j1, &mutex1, &collection1](auto& pf) mutable {
+      [N, &source, &j1, &mutex1, &collection1](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         auto ticket = j1.fetch_add(1);
 
         if(ticket >= N) {
@@ -706,7 +706,7 @@ void pipeline_2P_PP(size_t L, unsigned w) {
         }
       }},
       tf::Pipe{tf::PipeType::SERIAL, 
-      [N, &collection2, &source, &j2, &mutex2](auto& pf) mutable {
+      [N, &collection2, &source, &j2, &mutex2](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex2);
@@ -853,7 +853,7 @@ void pipeline_3P_SSS(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -865,7 +865,7 @@ void pipeline_3P_SSS(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(source[j2] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
         REQUIRE(pf.token() % L == pf.line());
@@ -875,7 +875,7 @@ void pipeline_3P_SSS(size_t L, unsigned w) {
         j2++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(source[j3] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
         REQUIRE(pf.token() % L == pf.line());
@@ -996,7 +996,7 @@ void pipeline_3P_SSP(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -1008,7 +1008,7 @@ void pipeline_3P_SSP(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(source[j2] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
         REQUIRE(pf.token() % L == pf.line());
@@ -1017,7 +1017,7 @@ void pipeline_3P_SSP(size_t L, unsigned w) {
         j2++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex, &collection, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex, &collection, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex);
@@ -1148,7 +1148,7 @@ void pipeline_3P_SPS(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -1160,7 +1160,7 @@ void pipeline_3P_SPS(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex, &collection, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex, &collection, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         //*(pf.output()) = *(pf.input()) + 1;
         {
@@ -1171,7 +1171,7 @@ void pipeline_3P_SPS(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j3] + 2 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -1305,7 +1305,7 @@ void pipeline_3P_SPP(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -1317,7 +1317,7 @@ void pipeline_3P_SPP(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         //*pf.output() = *pf.input() + 1;
         {
@@ -1328,7 +1328,7 @@ void pipeline_3P_SPP(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex3);
@@ -1461,7 +1461,7 @@ void pipeline_3P_PSS(size_t L, unsigned w) {
 
     tf::Pipeline pl(L, 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j1, &collection, &mutex](auto& pf) mutable {
+      [N, &source, &j1, &collection, &mutex](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         auto ticket = j1.fetch_add(1);
         
         if(ticket >= N) {
@@ -1474,13 +1474,13 @@ void pipeline_3P_PSS(size_t L, unsigned w) {
           *(pf.output()) = *(pf.input()) + 1;
         }
       }},
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(source[j2] + 1 == *(pf.input()));
         *(pf.output()) = source[j2] + 1;
         j2++;
       }},
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(source[j3] + 1 == *(pf.input()));
         j3++;
@@ -1631,7 +1631,7 @@ void pipeline_3P_PSP(size_t L, unsigned w) {
 
     tf::Pipeline pl(L, 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j1, &collection1, &mutex1](auto& pf) mutable {
+      [N, &source, &j1, &collection1, &mutex1](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         auto ticket = j1.fetch_add(1);
         
         if(ticket >= N) {
@@ -1644,14 +1644,14 @@ void pipeline_3P_PSP(size_t L, unsigned w) {
           *(pf.output()) = source[ticket] + 1;
         }
       }},
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(source[j2] + 1 == *(pf.input()));
         *(pf.output()) = source[j2] + 1;
         j2++;
       }},
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j3, &mutex3, &collection3](auto& pf) mutable {
+      [N, &source, &j3, &mutex3, &collection3](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex3);
@@ -1821,7 +1821,7 @@ void pipeline_3P_PPS(size_t L, unsigned w) {
 
     tf::Pipeline pl(L, 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j1, &collection1, &mutex1](auto& pf) mutable {
+      [N, &source, &j1, &collection1, &mutex1](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         auto ticket = j1.fetch_add(1);
         
         if(ticket >= N) {
@@ -1835,7 +1835,7 @@ void pipeline_3P_PPS(size_t L, unsigned w) {
         }
       }},
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j2, &mutex2, &collection2](auto& pf) mutable {
+      [N, &source, &j2, &mutex2, &collection2](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex2);
@@ -1843,7 +1843,7 @@ void pipeline_3P_PPS(size_t L, unsigned w) {
           *(pf.output()) = *(pf.input()) + 1;
         }
       }},
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(source[j3] + 1 == *(pf.input()));
         j3++;
@@ -2013,7 +2013,7 @@ void pipeline_3P_PPP(size_t L, unsigned w) {
 
     tf::Pipeline pl(L, 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j1, &collection1, &mutex1](auto& pf) mutable {
+      [N, &source, &j1, &collection1, &mutex1](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         auto ticket = j1.fetch_add(1);
         
         if(ticket >= N) {
@@ -2027,7 +2027,7 @@ void pipeline_3P_PPP(size_t L, unsigned w) {
         }
       }},
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j2, &mutex2, &collection2](auto& pf) mutable {
+      [N, &source, &j2, &mutex2, &collection2](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex2);
@@ -2036,7 +2036,7 @@ void pipeline_3P_PPP(size_t L, unsigned w) {
         }
       }},
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &source, &j3, &mutex3, &collection3](auto& pf) mutable {
+      [N, &source, &j3, &mutex3, &collection3](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex3);
@@ -2216,7 +2216,7 @@ void pipeline_4P_SSSS(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -2228,7 +2228,7 @@ void pipeline_4P_SSSS(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j2] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -2238,7 +2238,7 @@ void pipeline_4P_SSSS(size_t L, unsigned w) {
         j2++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(pf.token() % L == pf.line());
         // REQUIRE(source[j3] + 1 == *(pf.input()));
@@ -2248,7 +2248,7 @@ void pipeline_4P_SSSS(size_t L, unsigned w) {
         j3++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4 < N);
         REQUIRE(pf.token() % L == pf.line());
         // REQUIRE(source[j4] + 1 == *(pf.input()));
@@ -2597,7 +2597,7 @@ void pipeline_4P_SSSP(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -2609,7 +2609,7 @@ void pipeline_4P_SSSP(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j2] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -2619,7 +2619,7 @@ void pipeline_4P_SSSP(size_t L, unsigned w) {
         j2++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j3] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -2629,7 +2629,7 @@ void pipeline_4P_SSSP(size_t L, unsigned w) {
         j3++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex, &collection, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex, &collection, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex);
@@ -3003,7 +3003,7 @@ void pipeline_4P_SSPS(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -3015,7 +3015,7 @@ void pipeline_4P_SSPS(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j2] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -3025,7 +3025,7 @@ void pipeline_4P_SSPS(size_t L, unsigned w) {
         j2++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex, &collection, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex, &collection, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         // *(pf.output()) = *(pf.input()) + 1;
         {
@@ -3037,7 +3037,7 @@ void pipeline_4P_SSPS(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4 < N);
         REQUIRE(pf.token() % L == pf.line());
         // REQUIRE(source[j4] + 2 == *(pf.input()));
@@ -3411,7 +3411,7 @@ void pipeline_4P_SSPP(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -3423,7 +3423,7 @@ void pipeline_4P_SSPP(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j2] + 1 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -3433,7 +3433,7 @@ void pipeline_4P_SSPP(size_t L, unsigned w) {
         j2++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         // *pf.output() = *pf.input() + 1;
         {
@@ -3445,7 +3445,7 @@ void pipeline_4P_SSPP(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex4, &collection4, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex4, &collection4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex4);
@@ -3832,7 +3832,7 @@ void pipeline_4P_SPSS(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -3844,7 +3844,7 @@ void pipeline_4P_SPSS(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex, &collection, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex, &collection, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         // *(pf.output()) = *(pf.input()) + 1;
         {
@@ -3856,7 +3856,7 @@ void pipeline_4P_SPSS(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j3] + 2 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -3866,7 +3866,7 @@ void pipeline_4P_SPSS(size_t L, unsigned w) {
         j3++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j4] + 3 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -4239,7 +4239,7 @@ void pipeline_4P_SPSP(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -4251,7 +4251,7 @@ void pipeline_4P_SPSP(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         // *(pf.output()) = *(pf.input()) + 1;
         {
@@ -4263,7 +4263,7 @@ void pipeline_4P_SPSP(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j3] + 2 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -4273,7 +4273,7 @@ void pipeline_4P_SPSP(size_t L, unsigned w) {
         j3++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex4, &collection4, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex4, &collection4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex4);
@@ -4662,7 +4662,7 @@ void pipeline_4P_SPPS(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -4674,7 +4674,7 @@ void pipeline_4P_SPPS(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         // *pf.output() = *pf.input() + 1;
         {
@@ -4686,7 +4686,7 @@ void pipeline_4P_SPPS(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         // *pf.output() = *pf.input() + 1;
         {
@@ -4698,7 +4698,7 @@ void pipeline_4P_SPPS(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j4] + 3 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -5089,7 +5089,7 @@ void pipeline_4P_SPPP(size_t L, unsigned w) {
     size_t cnt = 1;
 
     tf::Pipeline pl(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1 == N) {
           pf.stop();
           return;
@@ -5101,7 +5101,7 @@ void pipeline_4P_SPPP(size_t L, unsigned w) {
         j1++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2, &mutex2, &collection2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2++ < N);
         // *pf.output() = *pf.input() + 1;
         {
@@ -5113,7 +5113,7 @@ void pipeline_4P_SPPP(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j3, &mutex3, &collection3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3++ < N);
         // *pf.output() = *pf.input() + 1;
         {
@@ -5125,7 +5125,7 @@ void pipeline_4P_SPPP(size_t L, unsigned w) {
         }
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex4, &collection4, &mybuffer, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j4, &mutex4, &collection4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j4++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex4);
@@ -5538,7 +5538,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
 
     // pipeline 1 is SSSS    
     tf::Pipeline pl1(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_1, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_1, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1_1 == N) {
           pf.stop();
           return;
@@ -5549,7 +5549,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
         j1_1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_2, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_2, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j1_2 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j1_2] + 1 == mybuffer1[pf.line()][pf.pipe() - 1]);
@@ -5557,7 +5557,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
         j1_2++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_3, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_3, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j1_3 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j1_3] + 1 == mybuffer1[pf.line()][pf.pipe() - 1]);
@@ -5565,7 +5565,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
         j1_3++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_4, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_4, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j1_4 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j1_4] + 1 == mybuffer1[pf.line()][pf.pipe() - 1]);
@@ -5595,7 +5595,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
 
     // pipeline 2 is SSP
     tf::Pipeline pl2(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_1, &mybuffer2, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_1, &mybuffer2, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j2_1 == N) {
           pf.stop();
           return;
@@ -5606,7 +5606,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
         j2_1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_2, &mybuffer2, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_2, &mybuffer2, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2_2 < N);
         REQUIRE(source[j2_2] + 1 == mybuffer2[pf.line()][pf.pipe() - 1]);
         REQUIRE(pf.token() % L == pf.line());
@@ -5614,7 +5614,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
         j2_2++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2_3, &mutex2_3, &collection2_3, &mybuffer2, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2_3, &mutex2_3, &collection2_3, &mybuffer2, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2_3++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex2_3);
@@ -5651,7 +5651,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
 
     // pipeline 3 is SP
     tf::Pipeline pl3(L,
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3_1, &mybuffer3, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3_1, &mybuffer3, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j3_1 == N) {
           pf.stop();
           return;
@@ -5663,7 +5663,7 @@ void three_parallel_pipelines(size_t L, unsigned w) {
       }},
 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &collection3_2, &mutex3_2, &j3_2, &mybuffer3, L](auto& pf) mutable {
+      [N, &collection3_2, &mutex3_2, &j3_2, &mybuffer3, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3_2++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex3_2);
@@ -6018,7 +6018,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
 
     // pipeline 1 is SSSS    
     tf::Pipeline pl1(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_1, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_1, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j1_1 == N) {
           pf.stop();
           return;
@@ -6029,7 +6029,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
         j1_1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_2, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_2, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j1_2 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j1_2] + 1 == mybuffer1[pf.line()][pf.pipe() - 1]);
@@ -6037,7 +6037,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
         j1_2++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_3, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_3, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j1_3 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j1_3] + 1 == mybuffer1[pf.line()][pf.pipe() - 1]);
@@ -6045,7 +6045,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
         j1_3++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_4, &mybuffer1, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j1_4, &mybuffer1, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j1_4 < N);
         REQUIRE(pf.token() % L == pf.line());
         REQUIRE(source[j1_4] + 1 == mybuffer1[pf.line()][pf.pipe() - 1]);
@@ -6073,7 +6073,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
 
     // pipeline 2 is SSP
     tf::Pipeline pl2(L, 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_1, &mybuffer2, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_1, &mybuffer2, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j2_1 == N) {
           pf.stop();
           return;
@@ -6084,7 +6084,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
         j2_1++;
       }},
 
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_2, &mybuffer2, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j2_2, &mybuffer2, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2_2 < N);
         REQUIRE(source[j2_2] + 1 == mybuffer2[pf.line()][pf.pipe() - 1]);
         REQUIRE(pf.token() % L == pf.line());
@@ -6092,7 +6092,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
         j2_2++;
       }},
 
-      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2_3, &mutex2_3, &collection2_3, &mybuffer2, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::PARALLEL, [N, &j2_3, &mutex2_3, &collection2_3, &mybuffer2, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j2_3++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex2_3);
@@ -6127,7 +6127,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
 
     // pipeline 3 is SP
     tf::Pipeline pl3(L,
-      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3_1, &mybuffer3, L](auto& pf) mutable {
+      tf::Pipe{tf::PipeType::SERIAL, [N, &source, &j3_1, &mybuffer3, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         if(j3_1 == N) {
           pf.stop();
           return;
@@ -6139,7 +6139,7 @@ void three_concatenated_pipelines(size_t L, unsigned w) {
       }},
 
       tf::Pipe{tf::PipeType::PARALLEL, 
-      [N, &collection3_2, &mutex3_2, &j3_2, &mybuffer3, L](auto& pf) mutable {
+      [N, &collection3_2, &mutex3_2, &j3_2, &mybuffer3, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
         REQUIRE(j3_2++ < N);
         {
           std::scoped_lock<std::mutex> lock(mutex3_2);
@@ -6499,7 +6499,7 @@ void looping_pipelines(size_t L, unsigned w) {
   size_t N = 0;
 
   tf::Pipeline pl(L, 
-    tf::Pipe{tf::PipeType::SERIAL, [&N, &source, &j1, &mybuffer, L](auto& pf) mutable {
+    tf::Pipe{tf::PipeType::SERIAL, [&N, &source, &j1, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
       if(j1 == N) {
         pf.stop();
         return;
@@ -6510,7 +6510,7 @@ void looping_pipelines(size_t L, unsigned w) {
       j1++;
     }},
 
-    tf::Pipe{tf::PipeType::PARALLEL, [&N, &j2, &mutex2, &collection2, &mybuffer, L](auto& pf) mutable {
+    tf::Pipe{tf::PipeType::PARALLEL, [&N, &j2, &mutex2, &collection2, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
       REQUIRE(j2++ < N);
       {
         std::scoped_lock<std::mutex> lock(mutex2);
@@ -6520,7 +6520,7 @@ void looping_pipelines(size_t L, unsigned w) {
       }
     }},
 
-    tf::Pipe{tf::PipeType::SERIAL, [&N, &source, &j3, &mybuffer, L](auto& pf) mutable {
+    tf::Pipe{tf::PipeType::SERIAL, [&N, &source, &j3, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
       REQUIRE(j3 < N);
       REQUIRE(pf.token() % L == pf.line());
       REQUIRE(source[j3] + 2 == mybuffer[pf.line()][pf.pipe() - 1]);
@@ -6528,7 +6528,7 @@ void looping_pipelines(size_t L, unsigned w) {
       j3++;
     }},
 
-    tf::Pipe{tf::PipeType::PARALLEL, [&N, &j4, &mutex4, &collection4, &mybuffer, L](auto& pf) mutable {
+    tf::Pipe{tf::PipeType::PARALLEL, [&N, &j4, &mutex4, &collection4, &mybuffer, L](tf::Runtime& rt, tf::Pipeflow& pf) mutable {
       REQUIRE(j4++ < N);
       {
         std::scoped_lock<std::mutex> lock(mutex4);

@@ -5,7 +5,7 @@
 struct Input {
   size_t i;
   size_t size;
-  void operator()(tf::Pipeflow& pf) {
+  void operator()(tf::Runtime& rt, tf::Pipeflow& pf) {
     work();
     if (i++ == size) {
       pf.stop(); 
@@ -14,7 +14,7 @@ struct Input {
 };
 
 struct Filter {
-  void operator()(tf::Pipeflow&) {
+  void operator()(tf::Runtime& rt, tf::Pipeflow& pf) {
     work();
   }
 };

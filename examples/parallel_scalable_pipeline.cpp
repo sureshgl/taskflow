@@ -92,7 +92,7 @@ int main() {
 
   
   // define the pipe callable
-  auto pipe_callable = [&buffer, &sub_taskflow, &executor, &s, num_tokens] (tf::Pipeflow& pf) mutable {
+  auto pipe_callable = [&buffer, &sub_taskflow, &executor, &s, num_tokens] (tf::Runtime& rt, tf::Pipeflow& pf) mutable {
     
     std::stringstream oss; 
       oss <<"["<<pf.token()<<" "<<pf.line()<<" "<<pf.pipe()<<"]["<<std::this_thread::get_id()<<"]Running Stage:\n";
@@ -109,7 +109,7 @@ int main() {
   };
 
   // create a vector of three pipes
-  std::vector< tf::Pipe<std::function<void(tf::Pipeflow&)>> > pipes;
+  std::vector< tf::Pipe<std::function<void(tf::Runtime& rt, tf::Pipeflow& pf)>> > pipes;
   pipes.emplace_back(tf::PipeType::SERIAL, pipe_callable);
   for(size_t i=1; i<3; i++) {
     pipes.emplace_back(tf::PipeType::PARALLEL, pipe_callable);

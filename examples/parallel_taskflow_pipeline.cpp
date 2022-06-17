@@ -62,7 +62,7 @@ int main() {
   tf::Pipeline pl(num_lines,
 
     // first pipe runs taskflow1
-    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       if(pf.token() == 5) {  // we only handle five scheduling tokens
         pf.stop();
         return;
@@ -72,12 +72,12 @@ int main() {
     }},
     
     // second pipe runs taskflow2
-    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       executor.run(taskflows[pf.pipe()]).wait();
     }},
 
     // third pipe calls taskflow3
-    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       executor.run(taskflows[pf.pipe()]).wait();
     }}
   );

@@ -400,6 +400,8 @@ class Task {
     */
     void* data() const;
 
+    Node* getNode();
+
 
   private:
     
@@ -408,12 +410,18 @@ class Task {
     Node* _node {nullptr};
 };
 
+
+
 // Constructor
 inline Task::Task(Node* node) : _node {node} {
 }
 
 // Constructor
 inline Task::Task(const Task& rhs) : _node {rhs._node} {
+}
+
+inline Node* Task::getNode(){
+  return _node;
 }
 
 // Function: precede

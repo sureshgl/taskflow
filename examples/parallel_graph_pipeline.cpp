@@ -37,7 +37,7 @@ int main() {
   tf::Pipeline pl(num_lines,
 
     // first pipe calls f1
-    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       if(pf.token() == nodes.size()) {
         pf.stop();
       }
@@ -47,12 +47,12 @@ int main() {
     }},
     
     // second pipe calls f2
-    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       f2(nodes[pf.token()]);
     }},
 
     // third pipe calls f3
-    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&](tf::Runtime& rt, tf::Pipeflow& pf) {
       f3(nodes[pf.token()]);
     }}
   );

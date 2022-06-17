@@ -132,6 +132,20 @@ class TaskQueue {
     The return can be a nullptr if this operation failed (not necessary empty).
     */
     T steal();
+
+    void clean() {
+      int capacity1 = capacity();
+      // clear
+      for(auto a : _garbage) {
+        delete a;
+      }
+      delete _array.load();
+      // init
+      _top.store(0, std::memory_order_relaxed);
+      _bottom.store(0, std::memory_order_relaxed);
+      _array.store(new Array{capacity1}, std::memory_order_relaxed);
+      _garbage.reserve(32);
+    }
 };
 
 // Constructor

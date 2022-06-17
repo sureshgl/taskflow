@@ -11,7 +11,7 @@ struct Input {
   std::vector<int>& mybuffer;
   LevelGraph& graph;
 
-  void operator()(tf::Pipeflow& pf) {
+  void operator()(tf::Runtime& rt, tf::Pipeflow& pf) {
     if (len == 0 && lev == graph.level()) {
       pf.stop(); 
     }
@@ -35,7 +35,7 @@ struct Filter {
   std::vector<int>& mybuffer;
   LevelGraph& graph;
   
-  void operator()(tf::Pipeflow& pf) {
+  void operator()(tf::Runtime& rt, tf::Pipeflow& pf) {
 
     int uid = mybuffer[pf.line()];
     int val = work(uid);
@@ -50,7 +50,7 @@ struct FilterFinal {
   std::vector<int>& mybuffer;
   LevelGraph& graph;
    
-  void operator()(tf::Pipeflow& pf){
+  void operator()(tf::Runtime& rt, tf::Pipeflow& pf){
     int uid = mybuffer[pf.line()];
     int val = work(uid);
 

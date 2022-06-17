@@ -651,6 +651,14 @@ class Executor {
     */
     size_t num_observers() const noexcept;
     
+    int inline get_size() {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "size:", _wsq.size(), "actives:", _num_actives.load());
+      return _wsq.size();
+    }
+
+    void join_taskflow(tf::Runtime &rt, tf::Taskflow &tf, tf::Pipeflow &pf);
+    void reset();
+
   private:
 
     std::condition_variable _topology_cv;
@@ -690,6 +698,7 @@ class Executor {
     void _exploit_task(Worker&, Node*&, Pipeflow*&);
     void _explore_task(Worker&, Node*&, Pipeflow*&);
     void _consume_task(Worker&, Node*);
+    void _consume_parent_task(Worker& w, Node* p);
     void _schedule(Worker&, Node*, Pipeflow&);
     void _schedule(Node*, Pipeflow&);
     void _schedule(Worker&, const SmallVector<Node*>&, Pipeflow&);
@@ -710,6 +719,7 @@ class Executor {
     void _invoke_dynamic_task(Worker&, Node*, Pipeflow&);
     void _join_dynamic_task_external(Worker&, Node*, Graph&, Pipeflow&);
     void _join_dynamic_task_internal(Worker&, Node*, Graph&, Pipeflow&);
+    void _join_dynamic_task_external_including_parent_node(Worker&, Node*, Graph&, Pipeflow&);
     void _detach_dynamic_tasked(Worker&, Node*, Graph&, Pipeflow&);
     void _invoke_condition_task(Worker&, Node*, SmallVector<int>&, Pipeflow&);
     void _invoke_multi_condition_task(Worker&, Node*, SmallVector<int>&, Pipeflow&);
@@ -719,6 +729,7 @@ class Executor {
     void _invoke_cudaflow_task(Worker&, Node*, Pipeflow&);
     void _invoke_syclflow_task(Worker&, Node*, Pipeflow&);
     void _invoke_runtime_task(Worker&, Node*, Pipeflow&);
+
 
     template <typename C, 
       std::enable_if_t<is_cudaflow_task_v<C>, void>* = nullptr
@@ -950,19 +961,77 @@ inline void Executor::_spawn(size_t N) {
   std::unique_lock<std::mutex> lock(mutex);
   cond.wait(lock, [&](){ return n==N; });
 }
-
-// Function: _consume_task
-inline void Executor::_consume_task(Worker& w, Node* p) {
-
+// Function: _consume_parent_task
+inline void Executor::_consume_parent_task(Worker& w, Node* p) {
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_consume_task START ctx:", w._id ," parent", p->name());
   std::uniform_int_distribution<size_t> rdvtm(0, _workers.size()-1);
 
-  while(p->_join_counter != 0) {
+  while(p->_join_counter >= 0) {
 
     exploit:
 
     auto ptr = w._wsq.pop();
     if(ptr){
       auto t = std::get<1>(*ptr);
+      Pipeflow& pf = std::get<0>(*ptr);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pop ", t->name());
+      if(t) {
+        _invoke(w, t, pf);
+      }
+      else {
+        // LOG_ERROR("not handled?>>>");
+      }
+    }
+    else {
+      size_t num_steals = 0;
+      //size_t num_pauses = 0;
+      size_t max_steals = ((_workers.size() + 1) << 1);
+      
+      explore:
+      
+      ptr = (w._id == w._vtm) ? _wsq.steal() : _workers[w._vtm]._wsq.steal();
+      if (ptr)
+      { 
+        auto t = std::get<1>(*ptr);
+        Pipeflow& pf  = std::get<0>(*ptr);
+        _invoke(w, t, pf);
+        goto exploit;
+      }
+      else if(p->_join_counter != 0){
+
+        if(num_steals++ > max_steals) {
+          //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_consume_parent_task - breaking, Worker=",w._id, " parent:", p->name(), " join_counter=", p->_join_counter.load(), num_steals, max_steals);
+          //GL assuming all the nodes under the parent are executed.
+          //std::this_thread::sleep_for(std::chrono::milliseconds(200));
+          std::this_thread::yield();
+          //break;
+        }
+
+        //std::this_thread::yield();
+        w._vtm = rdvtm(w._rdgen);
+        goto explore;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+
+// Function: _consume_task
+inline void Executor::_consume_task(Worker& w, Node* p) {
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_consume_task START ctx:", w._id ," parent", p->name());
+  std::uniform_int_distribution<size_t> rdvtm(0, _workers.size()-1);
+
+  while(p->_join_counter != 0) {
+
+    exploit:
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_consume_task 1 Worker:", w._id ," parent", p->name(), " join_counter:",p->_join_counter.load() );
+    auto ptr = w._wsq.pop();
+    if(ptr){
+      auto t = std::get<1>(*ptr);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pop", t->name());
       Pipeflow& pf = std::get<0>(*ptr);
       if(t) {
         _invoke(w, t, pf);
@@ -984,10 +1053,20 @@ inline void Executor::_consume_task(Worker& w, Node* p) {
         goto exploit;
       }
       else if(p->_join_counter != 0){
-
+        //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "disintegrate workers", _workers.size());
+        for(int i=0; i<_workers.size(); i++)
+        {
+          //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "qsize for worker i", i, _workers[i]._wsq.size());
+        }
+        //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_consume_task 2 Worker:", w._id ," parent", p->name(), " join_counter:",p->_join_counter.load() );
         if(num_steals++ > max_steals) {
+          // TODO IMP
           //(num_pauses++ < 100) ? relax_cpu() : std::this_thread::yield();
+          //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_consume_parent_task - breaking, Worker=",w._id, " parent:", p->name(), " join_counter=", p->_join_counter.load(), num_steals, max_steals);
+          //GL assuming all the nodes under the parent are executed.
+          //std::this_thread::sleep_for(std::chrono::milliseconds(200));
           std::this_thread::yield();
+          //break;
         }
 
         //std::this_thread::yield();
@@ -1049,6 +1128,7 @@ inline void Executor::_exploit_task(Worker& w, Node*& t, Pipeflow*& pf) {
       WSQTuple* ptr = w._wsq.pop();
       if(ptr){
         t = std::get<1>(*ptr);
+        //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pop ", t->name());
         pf = &std::get<0>(*ptr);
       }
       
@@ -1174,6 +1254,7 @@ inline void Executor::_schedule(Worker& worker, Node* node, Pipeflow& pf) {
   // caller is a worker to this pool
   if(worker._executor == this) {
     WSQTuple* ptr = new WSQTuple(pf,node);
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pushing node:", node->name());
     worker._wsq.push(ptr);
     return;
   }
@@ -1181,6 +1262,7 @@ inline void Executor::_schedule(Worker& worker, Node* node, Pipeflow& pf) {
   {
     std::lock_guard<std::mutex> lock(_wsq_mutex);
     WSQTuple* ptr = new WSQTuple(pf,node);
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pushing node:", node->name());
     _wsq.push(ptr);
   }
 
@@ -1195,6 +1277,7 @@ inline void Executor::_schedule(Node* node, Pipeflow& pf) {
   {
     std::lock_guard<std::mutex> lock(_wsq_mutex);
     WSQTuple* ptr = new WSQTuple(pf,node);
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pushing node:", node->name());
     _wsq.push(ptr);
     //_wsq.push(new WSQTuple(pf,node));
   }
@@ -1224,6 +1307,7 @@ inline void Executor::_schedule(
     for(size_t i=0; i<num_nodes; ++i) {
       //worker._wsq.push(nodes[i]);
       WSQTuple* ptr = new WSQTuple(pf,nodes[i]);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pushing node:", nodes[i]->name());
       worker._wsq.push(ptr);
     }
     return;
@@ -1232,6 +1316,7 @@ inline void Executor::_schedule(
   {
     std::lock_guard<std::mutex> lock(_wsq_mutex);
     for(size_t k=0; k<num_nodes; ++k) {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pushing node:", nodes[k]->name());
       _wsq.push(new WSQTuple(pf,nodes[k]));
     }
   }
@@ -1259,6 +1344,7 @@ inline void Executor::_schedule(const SmallVector<Node*>& nodes, Pipeflow& pf) {
     std::lock_guard<std::mutex> lock(_wsq_mutex);
     for(size_t k=0; k<num_nodes; ++k) {
       WSQTuple* ptr = new WSQTuple(pf,nodes[k]);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "pushing node:", nodes[k]->name());
       _wsq.push(ptr);
     }
   }
@@ -1269,6 +1355,7 @@ inline void Executor::_schedule(const SmallVector<Node*>& nodes, Pipeflow& pf) {
 // Procedure: _invoke
 inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
   
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
   // synchronize all outstanding memory operations caused by reordering
   while(!(node->_state.load(std::memory_order_acquire) & Node::READY));
   
@@ -1298,46 +1385,66 @@ inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
   switch(node->_handle.index()) {
     // static task
     case Node::STATIC:{
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
+      // assert((pf.token() < 10000) && (pf.line() < 5) && (pf.pipe() < 5));
       _invoke_static_task(worker, node, pf);
+      // assert((pf.token() < 10000) && (pf.line() < 5) && (pf.pipe() < 5));
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
     } 
     break;
     
     // dynamic task
     case Node::DYNAMIC: {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_dynamic_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _invoke_dynamic_task(worker, node, pf);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_dynamic_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
     }
     break;
     
     // condition task
     case Node::CONDITION: {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_condition_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _invoke_condition_task(worker, node, conds, pf);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_condition_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
     }
     break;
     
     // multi-condition task
     case Node::MULTI_CONDITION: {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_multi_condition_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _invoke_multi_condition_task(worker, node, conds, pf);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_multi_condition_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
     }
     break;
 
     // module task
     case Node::MODULE: {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_module_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _invoke_module_task(worker, node, pf);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_module_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
     }
     break;
 
     // async task
     case Node::ASYNC: {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_async_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _invoke_async_task(worker, node, pf);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_async_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_tear_down_async START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _tear_down_async(node);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_tear_down_async END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       return ;
     }
     break;
     
     // silent async task
     case Node::SILENT_ASYNC: {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_silent_async_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _invoke_silent_async_task(worker, node, pf);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_silent_async_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_tear_down_async START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _tear_down_async(node);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_tear_down_async END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       return ;
     }
     break;
@@ -1356,7 +1463,9 @@ inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
 
     // runtime task
     case Node::RUNTIME: {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_runtime_task START ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
       _invoke_runtime_task(worker, node, pf);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_runtime_task END ctx:", worker._id, pf.token(), pf.line(), pf.pipe(), node->name());
     }
     break;
 
@@ -1377,12 +1486,16 @@ inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
     node->_join_counter = node->num_strong_dependents();
   }
   else {
-    node->_join_counter = node->num_dependents();
+    // TODO
+    //LOG_DEBUG( __FUNCTION__,":",__LINE__, "node Name=", node->name(), " before join_counter=", node->_join_counter.load(), " dependents count= ", node->num_dependents(), " successors count= ", node->num_successors());
+    //node->_join_counter = node->num_dependents();
   }
   
   // acquire the parent flow counter
   auto& j = (node->_parent) ? node->_parent->_join_counter : 
                               node->_topology->_join_counter;
+  // if(node->_parent)
+  //   //LOG_DEBUG( __FUNCTION__,":",__LINE__, "node=", node->name(), "parent Name=", node->_parent->name(), "parent join_counter=", j.load());
  
   Node* cache {nullptr};
   
@@ -1394,12 +1507,15 @@ inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
     case Node::CONDITION: 
     case Node::MULTI_CONDITION: {
       for(auto cond : conds) {
+        //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "running after cond node", cond);
         if(cond >= 0 && static_cast<size_t>(cond) < node->_successors.size()) {
           auto s = node->_successors[cond];
           // zeroing the join counter for invariant
           s->_join_counter.store(0, std::memory_order_relaxed);
+          // //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, " zeroing the joincounter of s:", s, s->name());
           j.fetch_add(1);
           if(cache) {
+            //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "scheduling cache:", cache->name());
             _schedule(worker, cache, pf);
           }
           cache = s;
@@ -1411,9 +1527,12 @@ inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
     // non-condition task
     default: {
       for(size_t i=0; i<node->_successors.size(); ++i) {
+        //LOG_DEBUG( __FUNCTION__,__LINE__, "node Name=", node->name(), "Successor Name ", node->_successors[i]->name(), "successor's Join counter=",node->_successors[i]->_join_counter.load()); 
         if(--(node->_successors[i]->_join_counter) == 0) {
           j.fetch_add(1);
+          // //LOG_DEBUG( __FUNCTION__,__LINE__, "incremented the _join_counter of node->parent ", node->_parent->name(), "_join_counter=", j.load());
           if(cache) {
+            //LOG_DEBUG( __FUNCTION__,__LINE__, "Scheduling the successor node Name=", cache->name());
             _schedule(worker, cache, pf);
           }
           cache = node->_successors[i];
@@ -1429,6 +1548,7 @@ inline void Executor::_invoke(Worker& worker, Node* node, Pipeflow& pf) {
   // perform tail recursion elimination for the right-most child to reduce
   // the number of expensive pop/push operations through the task queue
   if(cache) {
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ":", __LINE__, "changing cache from -> to", cache->name(), node->name());
     node = cache;
     //node->_state.fetch_or(Node::READY, std::memory_order_release);
     goto begin_invoke;
@@ -1448,15 +1568,23 @@ inline void Executor::_tear_down_async(Node* node) {
 
 // Proecdure: _tear_down_invoke
 inline void Executor::_tear_down_invoke(Worker& worker, Node* node, Pipeflow& pf) {
+  // if(node->_parent){
+  //   //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_tear_down_invoke for node ", node->name(), " ", node->_join_counter.load(), " ", node->_parent->name(), " ", node->_parent->_join_counter.load());
+  // }
+  // else{
+  //   //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_tear_down_invoke for node ", node->name()," ", node->_join_counter.load());
+  // }
   // we must check parent first before substracting the join counter,
   // or it can introduce data race
   if(node->_parent == nullptr) {
     if(node->_topology->_join_counter.fetch_sub(1) == 1) {
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Tearing down the topology for node", node->name());
       _tear_down_topology(worker, node->_topology, pf);
     }
   } 
   else {  // joined subflow
     node->_parent->_join_counter.fetch_sub(1);
+    // //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Decremented the join counter for node ",node->name(), " ", node->_join_counter.load(), " ", node->_parent->name(), " ", node->_parent->_join_counter.load());
   }
 }
 
@@ -1513,15 +1641,31 @@ inline void Executor::_observer_epilogue(Worker& worker, Node* node, Pipeflow& p
 
 // Procedure: _invoke_static_task
 inline void Executor::_invoke_static_task(Worker& worker, Node* node, Pipeflow& pf) {
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task task:[", worker._id, pf.token(), pf.line(), pf.pipe(), node->name(),"]");
+  int token1 = pf.token();
+  int line1 = pf.line();
+  int pipe1 = pf.pipe();
   _observer_prologue(worker, node, pf);
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task prologue :[", worker._id, pf.token(), pf.line(), pf.pipe(), node->name(),"]");
+  assert( (token1 == pf.token()) && (line1 == pf.line()) &&  (pipe1 == pf.pipe()));   
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task prologue :[", worker._id, pf.token(), pf.line(), pf.pipe(), node->name(),"]");
+
   std::get_if<Node::Static>(&node->_handle)->work(WorkerView(worker), TaskView(*node), pf);
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task task:[", worker._id, pf.token(), pf.line(), pf.pipe(), node->name(),"]");
+  assert( (token1 == pf.token()) && (line1 == pf.line()) &&  (pipe1 == pf.pipe())); 
+
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task epilogue :[", worker._id, pf.token(), pf.line(), pf.pipe(), node->name(),"]");
   _observer_epilogue(worker, node, pf);
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_static_task end :[", worker._id, pf.token(), pf.line(), pf.pipe(), node->name(),"]");
+  assert( (token1 == pf.token()) && (line1 == pf.line()) &&  (pipe1 == pf.pipe()));    
 }
 
 // Procedure: _invoke_dynamic_task
 inline void Executor::_invoke_dynamic_task(Worker& w, Node* node, Pipeflow& pf) {
 
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_dynamic_task task ctx:", w._id, pf.token(), pf.line(), pf.pipe(), node->name());
   _observer_prologue(w, node, pf);
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_dynamic_task prologue ctx:", w._id, pf.token(), pf.line(), pf.pipe(), node->name());
 
   auto handle = std::get_if<Node::Dynamic>(&node->_handle);
 
@@ -1534,8 +1678,9 @@ inline void Executor::_invoke_dynamic_task(Worker& w, Node* node, Pipeflow& pf) 
   if(sf._joinable) {
     _join_dynamic_task_internal(w, node, handle->subgraph, pf);
   }
-  
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_dynamic_task epilogue ctx:", w._id, pf.token(), pf.line(), pf.pipe(), node->name());
   _observer_epilogue(w, node, pf);
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_invoke_dynamic_task end ctx:", w._id, pf.token(), pf.line(), pf.pipe(), node->name());
 }
 
 // Procedure: _detach_dynamic_tasked
@@ -1572,11 +1717,53 @@ inline void Executor::_detach_dynamic_tasked(
 }
 
 
+
+// Procedure: _join_dynamic_task_external
+inline void Executor::_join_dynamic_task_external_including_parent_node(
+  Worker& w, Node* p, Graph& g, Pipeflow& pf
+) {
+  // //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_join_dynamic_task_external_including_parent_node START ctx:", w._id, pf.token(), pf.line(), pf.pipe(), p->name());
+  // //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Parent=", p->name(), " join_counter of parent=", p->_join_counter.load());
+  // graph is empty and has no async tasks
+  if(g.empty() && p->_join_counter == 0) {
+    return;
+  }
+
+  SmallVector<Node*> src; 
+  for(auto n : g._nodes) {
+    n->_state.store(0, std::memory_order_relaxed);
+    n->_set_up_join_counter();
+    n->_topology = p->_topology;
+    n->_parent = p;
+    if(n->num_successors()==0)
+    {
+      n->_precede(p);
+    }
+    if(n->num_dependents() == 0) {
+      src.push_back(n);
+    }
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Node Details: Name", n->name(), " join_counter=", n->_join_counter.load(), " parent=", n->_parent->name(), " join_counter=", n->_parent->_join_counter.load());
+  }
+  //src.push_back(p);
+  p->_join_counter.fetch_add(p->num_dependents());
+  if(p->num_successors()== 0 && p->_parent)
+  {
+    // //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Adding join_counter from ", p->name(),"_join_counter=", p->_join_counter.load()," join_counter of parent=", p->_parent->name(), p->_parent->_join_counter.load());
+    p->_parent->_join_counter.fetch_add(1);
+    // //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Added join_counter from ", p->name(),"_join_counter=", p->_join_counter.load()," join_counter of parent=", p->_parent->name(), p->_parent->_join_counter.load());
+  }
+  _schedule(w, src, pf);
+  _consume_parent_task(w, p);
+  // //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_join_dynamic_task_external_including_parent_node END ctx:", w._id, pf.token(), pf.line(), pf.pipe(), p->name());
+}
+
+
+
 // Procedure: _join_dynamic_task_external
 inline void Executor::_join_dynamic_task_external(
   Worker& w, Node* p, Graph& g, Pipeflow& pf
 ) {
-
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_join_dynamic_task_external START ctx:", w._id, pf.token(), pf.line(), pf.pipe(), p->name());
   // graph is empty and has no async tasks
   if(g.empty() && p->_join_counter == 0) {
     return;
@@ -1590,14 +1777,15 @@ inline void Executor::_join_dynamic_task_external(
     n->_set_up_join_counter();
     n->_topology = p->_topology;
     n->_parent = p;
-    
     if(n->num_dependents() == 0) {
       src.push_back(n);
     }
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Node Details: Name", n->name(), " join_counter=", n->_join_counter.load(), " parent=", n->_parent->name(), " join_counter=", n->_parent->_join_counter.load());
   }
   p->_join_counter.fetch_add(src.size());
   _schedule(w, src, pf);
   _consume_task(w, p);
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_join_dynamic_task_external END ctx:", w._id, pf.token(), pf.line(), pf.pipe(), p->name());
 }
 
 
@@ -1605,7 +1793,7 @@ inline void Executor::_join_dynamic_task_external(
 inline void Executor::_join_dynamic_task_internal(
   Worker& w, Node* p, Graph& g, Pipeflow& pf
 ) {
-
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_join_dynamic_task_internal START ctx:", w._id, pf.token(), pf.line(), pf.pipe(), p->name());
   // graph is empty and has no async tasks
   if(g.empty() && p->_join_counter == 0) {
     return;
@@ -1620,11 +1808,17 @@ inline void Executor::_join_dynamic_task_internal(
     n->_parent = p;
     if(n->num_dependents() == 0) {
       src.push_back(n);
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Src Node Details: Name", n->name() );
     }
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Node Details: Name", n->name(), " join_counter=", n->_join_counter.load(), " parent=", n->_parent->name(), " join_counter=", n->_parent->_join_counter.load());
   }
+  
   p->_join_counter.fetch_add(src.size());
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Pipeline details Src.Size()=", src.size(), " parent->join_coounter=", p->_join_counter.load());
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "Scheduling the srcs ctx:", w._id, pf.token(), pf.line(), pf.pipe(), p->name());
   _schedule(w, src, pf);
   _consume_task(w, p);
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "_join_dynamic_task_internal END ctx:", w._id, pf.token(), pf.line(), pf.pipe(), p->name());
 }
 
 // Procedure: _invoke_condition_task
@@ -1698,9 +1892,9 @@ inline tf::Future<void> Executor::run(Taskflow& f) {
 
 // Function: run(1)
 inline tf::Future<void> Executor::run(Taskflow& f, Pipeflow& pf) {
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "running taskflow for pipe", pf.token(), pf.line(), pf.pipe());
   return run_n(f, pf, 1, [](){});
 }
-
 
 // Function: run(2))
 inline tf::Future<void> Executor::run(Taskflow&& f) {
@@ -1711,6 +1905,7 @@ inline tf::Future<void> Executor::run(Taskflow&& f) {
 
 // Function: run(2)
 inline tf::Future<void> Executor::run(Taskflow&& f, Pipeflow& pf) {
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "running taskflow for pipe", pf.token(), pf.line(), pf.pipe());
   return run_n(std::move(f), pf, 1, [](){});
 }
 
@@ -1867,6 +2062,7 @@ tf::Future<void> Executor::run_until(Taskflow& f, Pipeflow& pf, P&& p, C&& c) {
   {
     std::lock_guard<std::mutex> lock(f._mutex);
     f._topologies.push(t);
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology for node", f._name);
     if(f._topologies.size() == 1) {
       _set_up_topology(_this_worker(), t.get(), pf);
     }
@@ -1933,9 +2129,12 @@ inline void Executor::_set_up_topology(Worker* worker, Topology* tpg) {
 inline void Executor::_set_up_topology(Worker* worker, Topology* tpg, Pipeflow& pf) {
 
   // ---- under taskflow lock ----
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology for pipe", pf.token(), pf.line(), pf.pipe(), tpg->_taskflow._graph._nodes.size());
 
   tpg->_sources.clear();
+  //if(tpg->_taskflow._topologies.size() <= 1)
   tpg->_taskflow._graph._clear_detached();
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology for pipe", pf.token(), pf.line(), pf.pipe(), tpg->_taskflow._graph._nodes.size());
   
   // scan each node in the graph and build up the links
   for(auto node : tpg->_taskflow._graph._nodes) {
@@ -1949,16 +2148,19 @@ inline void Executor::_set_up_topology(Worker* worker, Topology* tpg, Pipeflow& 
 
     node->_set_up_join_counter();
   }
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology for pipe", pf.token(), pf.line(), pf.pipe(), tpg->_taskflow._graph._nodes.size());
 
   tpg->_join_counter = tpg->_sources.size();
 
   if(worker) {
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology for pipe", pf.token(), pf.line(), pf.pipe(), tpg->_taskflow._graph._nodes.size());
     _schedule(*worker, tpg->_sources, pf);
   }
   else {
-
+    //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology for pipe", pf.token(), pf.line(), pf.pipe(), tpg->_taskflow._graph._nodes.size());
     _schedule(tpg->_sources, pf);
   }
+  //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology for pipe", pf.token(), pf.line(), pf.pipe(), tpg->_taskflow._graph._nodes.size());
 }
 
 inline void Executor::_tear_down_topology(Worker& worker, Topology* tpg)
@@ -2003,8 +2205,9 @@ inline void Executor::_tear_down_topology(Worker& worker, Topology* tpg, Pipeflo
       
       // set up topology needs to be under the lock or it can
       // introduce memory order error with pop
+      //LOG_DEBUG(__FILE__, ":", __FUNCTION__, ";", __LINE__, "setting up topology in tear down", pf.token(), pf.line(), pf.pipe());
       _set_up_topology(&worker, tpg, pf);
-    } 
+    }
     else {
       //assert(f._topologies.size() == 1);
 
@@ -2040,6 +2243,23 @@ inline void Executor::_tear_down_topology(Worker& worker, Topology* tpg, Pipeflo
         _taskflows.erase(*s);
       } 
     }
+  }
+}
+
+/*
+Atmost should call only once on given parent node.
+*/
+inline void Executor::join_taskflow(tf::Runtime &rt, tf::Taskflow &tf, tf::Pipeflow &pf){
+  _join_dynamic_task_external_including_parent_node(rt.worker(), rt.parent(), tf.graph(), pf);
+  tf._joined = true;
+}
+
+inline void Executor::reset(){
+  std::lock_guard<std::mutex> lock(_wsq_mutex);
+  _wsq.clean();
+  for(auto &worker : _workers)
+  {
+    worker._wsq.clean();
   }
 }
 

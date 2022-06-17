@@ -31,7 +31,7 @@ int main() {
   // the pipeline consists of three pipes (serial-parallel-serial)
   // and up to four concurrent scheduling tokens
   tf::Pipeline pl(num_lines,
-    tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Runtime& rt, tf::Pipeflow& pf) {
       // generate only 5 scheduling tokens
       if(pf.token() == 5) {
         pf.stop();
@@ -43,7 +43,7 @@ int main() {
       }
     }},
 
-    tf::Pipe{tf::PipeType::PARALLEL, [&buffer](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::PARALLEL, [&buffer](tf::Runtime& rt, tf::Pipeflow& pf) {
       printf(
         "stage 2: input buffer[%zu] = %d\n", pf.line(), buffer[pf.line()]
       );
@@ -52,7 +52,7 @@ int main() {
       buffer[pf.line()] = buffer[pf.line()] + 1;
     }},
 
-    tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Pipeflow& pf) {
+    tf::Pipe{tf::PipeType::SERIAL, [&buffer](tf::Runtime& rt, tf::Pipeflow& pf) {
       printf(
         "stage 3: input buffer[%zu] = %d\n", pf.line(), buffer[pf.line()]
       );

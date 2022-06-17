@@ -286,6 +286,8 @@ class Taskflow : public FlowBuilder {
 
     Taskflow* clone();
 
+    bool _joined;
+
   private:
     
     mutable std::mutex _mutex;

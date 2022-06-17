@@ -15,6 +15,7 @@
 #include "topology.hpp"
 #include "pipeflow.hpp"
 
+
 /** 
 @file graph.hpp
 @brief graph include file
@@ -168,6 +169,8 @@ class Runtime {
   @endcode
   */
   Executor& executor();
+  Worker& worker();
+  Node* parent();
   
   /**
   @brief schedules an active task immediately to the worker's queue
@@ -216,6 +219,11 @@ class Runtime {
   template <typename C>
   void run(C&&, Pipeflow&);
 
+  // //function : join_taskflow_dynamically
+  // void join_taskflow_dynamically(Taskflow& taskflow, Pipeflow& pf);
+
+  std::shared_ptr<Runtime> getRuntime(Node* node);
+
   private:
   
   explicit Runtime(Executor&, Worker&, Node*);
@@ -235,6 +243,24 @@ inline Runtime::Runtime(Executor& e, Worker& w, Node* p) :
 // Function: executor
 inline Executor& Runtime::executor() {
   return _executor;
+}
+inline Worker& Runtime::worker() {
+  return _worker;
+}
+inline Node* Runtime::parent() {
+  return _parent;
+}
+
+// //function : join_taskflow_dynamically
+// inline void Runtime::join_taskflow_dynamically(Taskflow& taskflow, Pipeflow& pf)
+// {
+//   //taskflow._joined = true;
+//   _executor._join_dynamic_task_internal(_worker, _parent, taskflow.graph(), pf);
+// }
+
+inline std::shared_ptr<Runtime> Runtime::getRuntime(Node* node)
+{
+  return std::shared_ptr<Runtime>( new Runtime(_executor, _worker, node));
 }
 
 // ----------------------------------------------------------------------------
@@ -333,7 +359,7 @@ class Node {
     template <typename C>
     SilentAsync(C&&);
     // SilentAsync(const SilentAsync&);
-    //GL SilentAsync& operator = (const SilentAsync&);
+    //SilentAsync& operator = (const SilentAsync&);
     std::function<void(WorkerView, TaskView, Pipeflow&)> work;
   };
   
@@ -912,6 +938,7 @@ inline Graph& Graph::operator = (const Graph& other) {
       this_node->_dependents.push_back(node_map.at(that_node_dependent));
     }
   }
+  assert(other.size() == this->size());
   return *this;
 }
 
